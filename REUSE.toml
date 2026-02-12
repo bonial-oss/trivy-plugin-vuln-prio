@@ -20,3 +20,9 @@ path = "docs/**"
 precedence = "override"
 SPDX-FileCopyrightText = "2026 Bonial International GmbH"
 SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "testdata/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Bonial International GmbH"
+SPDX-License-Identifier = "Apache-2.0"
