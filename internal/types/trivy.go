@@ -16,16 +16,141 @@ type Report struct {
 	Results       []Result        `json:"Results"`
 }
 
-// Result represents a single Trivy scan result for a target.
+// Result represents a single Trivy scan result for a target. Fields the
+// plugin inspects are typed; all other JSON fields are captured in Extras
+// and re-emitted on marshal to avoid data loss.
 type Result struct {
-	Target            string            `json:"Target"`
-	Class             string            `json:"Class,omitempty"`
-	Type              string            `json:"Type,omitempty"`
-	Vulnerabilities   []Vulnerability   `json:"Vulnerabilities,omitempty"`
-	Packages          json.RawMessage   `json:"Packages,omitempty"`
-	Misconfigurations json.RawMessage   `json:"Misconfigurations,omitempty"`
-	Secrets           json.RawMessage   `json:"Secrets,omitempty"`
-	Licenses          json.RawMessage   `json:"Licenses,omitempty"`
+	Target                       string            `json:"Target"`
+	Class                        string            `json:"Class,omitempty"`
+	Type                         string            `json:"Type,omitempty"`
+	Vulnerabilities              []Vulnerability   `json:"Vulnerabilities,omitempty"`
+	ExperimentalModifiedFindings []ModifiedFinding `json:"ExperimentalModifiedFindings,omitempty"`
+	Packages                     json.RawMessage   `json:"Packages,omitempty"`
+	Misconfigurations            json.RawMessage   `json:"Misconfigurations,omitempty"`
+	Secrets                      json.RawMessage   `json:"Secrets,omitempty"`
+	Licenses                     json.RawMessage   `json:"Licenses,omitempty"`
+	// Extras holds all other JSON fields for passthrough.
+	Extras map[string]json.RawMessage `json:"-"`
+}
+
+// resultKnownFields lists the JSON keys that correspond to typed fields on
+// Result. Everything else goes into Extras.
+var resultKnownFields = map[string]bool{
+	"Target":                       true,
+	"Class":                        true,
+	"Type":                         true,
+	"Vulnerabilities":              true,
+	"ExperimentalModifiedFindings": true,
+	"Packages":                     true,
+	"Misconfigurations":            true,
+	"Secrets":                      true,
+	"Licenses":                     true,
+}
+
+// UnmarshalJSON decodes a Result from JSON, extracting known fields into
+// their typed counterparts and capturing everything else in Extras.
+func (r *Result) UnmarshalJSON(data []byte) error {
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		return err
+	}
+
+	get := func(key string, dst interface{}) error {
+		raw, ok := all[key]
+		if !ok {
+			return nil
+		}
+		return json.Unmarshal(raw, dst)
+	}
+
+	if err := get("Target", &r.Target); err != nil {
+		return err
+	}
+	if err := get("Class", &r.Class); err != nil {
+		return err
+	}
+	if err := get("Type", &r.Type); err != nil {
+		return err
+	}
+	if err := get("Vulnerabilities", &r.Vulnerabilities); err != nil {
+		return err
+	}
+	if err := get("ExperimentalModifiedFindings", &r.ExperimentalModifiedFindings); err != nil {
+		return err
+	}
+
+	if raw, ok := all["Packages"]; ok {
+		r.Packages = raw
+	}
+	if raw, ok := all["Misconfigurations"]; ok {
+		r.Misconfigurations = raw
+	}
+	if raw, ok := all["Secrets"]; ok {
+		r.Secrets = raw
+	}
+	if raw, ok := all["Licenses"]; ok {
+		r.Licenses = raw
+	}
+
+	extras := make(map[string]json.RawMessage)
+	for k, val := range all {
+		if !resultKnownFields[k] {
+			extras[k] = val
+		}
+	}
+	if len(extras) > 0 {
+		r.Extras = extras
+	}
+
+	return nil
+}
+
+// MarshalJSON encodes a Result to JSON, merging typed fields with the
+// passthrough Extras map.
+func (r Result) MarshalJSON() ([]byte, error) {
+	m := make(map[string]interface{})
+
+	for k, val := range r.Extras {
+		m[k] = val
+	}
+
+	m["Target"] = r.Target
+	if r.Class != "" {
+		m["Class"] = r.Class
+	}
+	if r.Type != "" {
+		m["Type"] = r.Type
+	}
+	if len(r.Vulnerabilities) > 0 {
+		m["Vulnerabilities"] = r.Vulnerabilities
+	}
+	if len(r.ExperimentalModifiedFindings) > 0 {
+		m["ExperimentalModifiedFindings"] = r.ExperimentalModifiedFindings
+	}
+	if r.Packages != nil {
+		m["Packages"] = r.Packages
+	}
+	if r.Misconfigurations != nil {
+		m["Misconfigurations"] = r.Misconfigurations
+	}
+	if r.Secrets != nil {
+		m["Secrets"] = r.Secrets
+	}
+	if r.Licenses != nil {
+		m["Licenses"] = r.Licenses
+	}
+
+	return json.Marshal(m)
+}
+
+// ModifiedFinding represents a suppressed or modified vulnerability finding
+// from Trivy's --show-suppressed output.
+type ModifiedFinding struct {
+	Type      string        `json:"Type"`
+	Status    string        `json:"Status"`
+	Statement string        `json:"Statement,omitempty"`
+	Source    string        `json:"Source,omitempty"`
+	Finding   Vulnerability `json:"Finding"`
 }
 
 // Vulnerability represents a single vulnerability finding. Fields the plugin
