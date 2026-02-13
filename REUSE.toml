@@ -4,6 +4,7 @@ version = 1
 path = [
   ".gitignore",
   "go.mod",
+  "go.sum",
 ]
 precedence = "override"
 SPDX-FileCopyrightText = "2026 Bonial International GmbH"
