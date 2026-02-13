@@ -127,12 +127,54 @@ func TestVulnerability_Marshal_WithVulnPrio(t *testing.T) {
 	assert.Contains(t, result, "Severity")
 }
 
+func TestReport_RoundTrip_PreservesExtras(t *testing.T) {
+	input := `{
+		"SchemaVersion": 2,
+		"ArtifactName": "myimage:latest",
+		"ArtifactType": "container_image",
+		"Metadata": {"ImageID": "sha256:abc123"},
+		"Results": [],
+		"CreatedAt": "2026-01-15T10:30:00Z",
+		"CustomTopLevel": {"key": "value", "nested": true}
+	}`
+
+	var report Report
+	require.NoError(t, json.Unmarshal([]byte(input), &report))
+
+	// Verify known fields are accessible.
+	assert.Equal(t, 2, report.SchemaVersion)
+	assert.Equal(t, "myimage:latest", report.ArtifactName)
+	assert.Equal(t, "container_image", report.ArtifactType)
+	assert.NotNil(t, report.Metadata)
+	assert.Empty(t, report.Results)
+
+	// Verify extras captured unknown fields.
+	assert.Contains(t, report.Extras, "CreatedAt")
+	assert.Contains(t, report.Extras, "CustomTopLevel")
+
+	// Re-marshal and verify round-trip.
+	out, err := json.Marshal(report)
+	require.NoError(t, err)
+
+	var roundTrip map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(out, &roundTrip))
+
+	// All original fields must be present.
+	for _, key := range []string{
+		"SchemaVersion", "ArtifactName", "ArtifactType", "Metadata",
+		"Results", "CreatedAt", "CustomTopLevel",
+	} {
+		assert.Contains(t, roundTrip, key)
+	}
+}
+
 func TestReport_RoundTrip_EnrichAndPreserve(t *testing.T) {
 	input := `{
 		"SchemaVersion": 2,
 		"ArtifactName": "myimage:latest",
 		"ArtifactType": "container_image",
 		"Metadata": {"ImageID": "sha256:abc123"},
+		"CreatedAt": "2026-01-15T10:30:00Z",
 		"Results": [
 			{
 				"Target": "myimage:latest (alpine 3.18)",
@@ -174,6 +216,9 @@ func TestReport_RoundTrip_EnrichAndPreserve(t *testing.T) {
 	require.Len(t, report.Results, 1)
 	require.Len(t, report.Results[0].Vulnerabilities, 2)
 
+	// Verify unknown top-level field captured in extras.
+	assert.Contains(t, report.Extras, "CreatedAt")
+
 	// Enrich the first vulnerability.
 	score := 0.5
 	percentile := 0.7
@@ -196,6 +241,7 @@ func TestReport_RoundTrip_EnrichAndPreserve(t *testing.T) {
 
 	// Top-level fields.
 	assert.Contains(t, result, "Metadata")
+	assert.Contains(t, result, "CreatedAt")
 
 	// Parse Results.
 	var results []json.RawMessage
@@ -253,6 +299,109 @@ func TestVulnerability_UnmarshalJSON_EmptyExtras(t *testing.T) {
 
 	// FixedVersion should be omitted.
 	assert.NotContains(t, result, "FixedVersion")
+}
+
+func TestResult_RoundTrip_PreservesExtras(t *testing.T) {
+	input := `{
+		"Target": "myimage:latest",
+		"Class": "os-pkgs",
+		"Type": "alpine",
+		"Vulnerabilities": [
+			{
+				"VulnerabilityID": "CVE-2023-0001",
+				"PkgName": "openssl",
+				"InstalledVersion": "3.0.0",
+				"Severity": "HIGH"
+			}
+		],
+		"Packages": [{"Name": "openssl"}],
+		"CustomField": "should survive round-trip",
+		"AnotherField": 42
+	}`
+
+	var r Result
+	require.NoError(t, json.Unmarshal([]byte(input), &r))
+
+	assert.Equal(t, "myimage:latest", r.Target)
+	require.Len(t, r.Vulnerabilities, 1)
+	assert.NotNil(t, r.Packages)
+
+	// Unknown fields captured in Extras.
+	assert.Contains(t, r.Extras, "CustomField")
+	assert.Contains(t, r.Extras, "AnotherField")
+
+	// Round-trip.
+	out, err := json.Marshal(r)
+	require.NoError(t, err)
+
+	var roundTrip map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(out, &roundTrip))
+
+	for _, key := range []string{"Target", "Class", "Type", "Vulnerabilities", "Packages", "CustomField", "AnotherField"} {
+		assert.Contains(t, roundTrip, key)
+	}
+}
+
+func TestResult_RoundTrip_WithModifiedFindings(t *testing.T) {
+	input := `{
+		"Target": "test:latest",
+		"Type": "debian",
+		"Vulnerabilities": [
+			{
+				"VulnerabilityID": "CVE-2024-1111",
+				"PkgName": "lib1",
+				"InstalledVersion": "1.0",
+				"Severity": "HIGH"
+			}
+		],
+		"ExperimentalModifiedFindings": [
+			{
+				"Type": "vulnerability",
+				"Status": "ignored",
+				"Statement": "Not applicable",
+				"Source": ".trivyignore",
+				"Finding": {
+					"VulnerabilityID": "CVE-2024-2222",
+					"PkgName": "lib2",
+					"InstalledVersion": "2.0",
+					"Severity": "MEDIUM",
+					"Title": "Suppressed vuln title"
+				}
+			}
+		]
+	}`
+
+	var r Result
+	require.NoError(t, json.Unmarshal([]byte(input), &r))
+
+	require.Len(t, r.ExperimentalModifiedFindings, 1)
+
+	mf := r.ExperimentalModifiedFindings[0]
+	assert.Equal(t, "vulnerability", mf.Type)
+	assert.Equal(t, "ignored", mf.Status)
+	assert.Equal(t, "Not applicable", mf.Statement)
+	assert.Equal(t, ".trivyignore", mf.Source)
+	assert.Equal(t, "CVE-2024-2222", mf.Finding.VulnerabilityID)
+
+	// Finding's Title should be in Extras.
+	assert.Contains(t, mf.Finding.Extras, "Title")
+
+	// Round-trip.
+	out, err := json.Marshal(r)
+	require.NoError(t, err)
+
+	var roundTrip map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(out, &roundTrip))
+
+	assert.Contains(t, roundTrip, "ExperimentalModifiedFindings")
+
+	// Parse modified findings from round-trip.
+	var findings []ModifiedFinding
+	require.NoError(t, json.Unmarshal(roundTrip["ExperimentalModifiedFindings"], &findings))
+	require.Len(t, findings, 1)
+	assert.Equal(t, "CVE-2024-2222", findings[0].Finding.VulnerabilityID)
+	// Title should survive round-trip in Finding.Extras.
+	assert.Contains(t, findings[0].Finding.Extras, "Title")
 }
 
 func TestVulnerability_Unmarshal_WithVulnPrio(t *testing.T) {
