@@ -11,14 +11,12 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	aqtable "github.com/aquasecurity/table"
+
 	"github.com/bonial-oss/trivy-plugin-vuln-prio/internal/types"
 )
 
-const (
-	maxTitleWords     = 12
-	maxTitleWidth     = 44
-	maxStatementWidth = 80
-)
+const maxTitleWords = 12
 
 // TableConfig controls which columns are displayed and how rows are sorted.
 type TableConfig struct {
@@ -35,7 +33,7 @@ type vulnRow struct {
 	index int // original index for stable sort
 }
 
-// WriteTable writes an enriched report as a box-drawn table grouped by target.
+// WriteTable writes an enriched report as a table grouped by target.
 func WriteTable(w io.Writer, report *types.Report, cfg TableConfig) error {
 	first := true
 	for i := range report.Results {
@@ -60,20 +58,16 @@ func WriteTable(w io.Writer, report *types.Report, cfg TableConfig) error {
 				rows[j] = vulnRow{vuln: &vulns[j], index: j}
 			}
 			sortRows(rows, cfg.SortBy)
-			writeBoxTable(w, rows, cfg)
+			writeVulnTable(w, rows, cfg)
 		}
 
 		if hasSuppressed {
-			if len(vulns) > 0 {
-				fmt.Fprintln(w)
-			}
-			fmt.Fprintln(w, "Suppressed Vulnerabilities")
-			writeSuppressedTable(w, result.ExperimentalModifiedFindings, cfg)
+			writeSuppressedSection(w, result.ExperimentalModifiedFindings, cfg)
 		}
 	}
 
 	if first {
-		writeBoxTable(w, nil, cfg)
+		writeVulnTable(w, nil, cfg)
 	}
 
 	return nil
@@ -91,186 +85,51 @@ func writeTargetHeader(w io.Writer, result *types.Result) {
 	fmt.Fprintln(w)
 }
 
-// columnWidthFn returns the max display width for column colIndex, or 0 for content-driven.
-type columnWidthFn func(colIndex int, headers []string) int
-
-// vulnColumnWidth caps the Title column to keep the overall table width manageable.
-func vulnColumnWidth(colIndex int, headers []string) int {
-	if colIndex < len(headers) && headers[colIndex] == "Title" {
-		return maxTitleWidth
-	}
-	return 0
+// newTableWriter creates a table writer with the standard configuration
+// matching Trivy's output format: borders, auto-merge, and row separators.
+func newTableWriter(w io.Writer) *aqtable.Table {
+	tw := aqtable.New(w)
+	tw.SetBorders(true)
+	tw.SetAutoMerge(true)
+	tw.SetRowLines(true)
+	return tw
 }
 
-// suppressedColumnWidth caps the Statement column for readability.
-func suppressedColumnWidth(colIndex int, headers []string) int {
-	if colIndex < len(headers) && headers[colIndex] == "Statement" {
-		return maxStatementWidth
-	}
-	return 0
-}
-
-// writeBoxTable renders a box-drawn table for vulnerability rows.
-func writeBoxTable(w io.Writer, rows []vulnRow, cfg TableConfig) {
-	headers := headerNames(cfg)
-	var cellRows [][]string
+// writeVulnTable renders a vulnerability table using aquasecurity/table.
+func writeVulnTable(w io.Writer, rows []vulnRow, cfg TableConfig) {
+	tw := newTableWriter(w)
+	tw.SetHeaders(headerNames(cfg)...)
 	for _, row := range rows {
-		cellRows = append(cellRows, rowCells(row.vuln, cfg))
+		tw.AddRow(rowCells(row.vuln, cfg)...)
 	}
-	renderBoxTable(w, headers, cellRows, vulnColumnWidth)
+	tw.Render()
 }
 
-// renderBoxTable draws a box-drawn table with the given headers, cell data, and width function.
-func renderBoxTable(w io.Writer, headers []string, cellRows [][]string, maxWidth columnWidthFn) {
-	numCols := len(headers)
-
-	// Compute column widths from headers and data.
-	widths := make([]int, numCols)
-	for i, h := range headers {
-		widths[i] = utf8.RuneCountInString(h)
-	}
-	for _, cells := range cellRows {
-		for i, cell := range cells {
-			lines := wrapText(cell, maxWidth(i, headers))
-			for _, line := range lines {
-				if n := utf8.RuneCountInString(line); n > widths[i] {
-					widths[i] = n
-				}
-			}
+// writeSuppressedSection renders the suppressed vulnerabilities header and table.
+func writeSuppressedSection(w io.Writer, findings []types.ModifiedFinding, cfg TableConfig) {
+	var total int
+	for i := range findings {
+		if findings[i].Type == "vulnerability" {
+			total++
 		}
 	}
-
-	// Draw top border.
-	fmt.Fprintln(w, borderLine(widths, "┌", "┬", "┐"))
-
-	// Draw header row (centered).
-	fmt.Fprintln(w, dataLine(widths, headers, true))
-
-	// Draw header separator.
-	fmt.Fprintln(w, borderLine(widths, "├", "┼", "┤"))
-
-	// Draw data rows with word wrapping.
-	for _, cells := range cellRows {
-		wrapped := make([][]string, numCols)
-		maxLines := 1
-		for i, cell := range cells {
-			wrapped[i] = wrapText(cell, widths[i])
-			if len(wrapped[i]) > maxLines {
-				maxLines = len(wrapped[i])
-			}
-		}
-		for line := 0; line < maxLines; line++ {
-			lineCells := make([]string, numCols)
-			for i := range lineCells {
-				if line < len(wrapped[i]) {
-					lineCells[i] = wrapped[i][line]
-				}
-			}
-			fmt.Fprintln(w, dataLine(widths, lineCells, false))
-		}
+	if total == 0 {
+		return
 	}
 
-	// Draw bottom border.
-	fmt.Fprintln(w, borderLine(widths, "└", "┴", "┘"))
-}
+	title := fmt.Sprintf("Suppressed Vulnerabilities (Total: %d)", total)
+	fmt.Fprintf(w, "\n%s\n", title)
+	fmt.Fprintf(w, "%s\n", strings.Repeat("=", utf8.RuneCountInString(title)))
 
-// borderLine builds a horizontal border like ┌────┬────┬────┐.
-func borderLine(widths []int, left, mid, right string) string {
-	var b strings.Builder
-	b.WriteString(left)
-	for i, w := range widths {
-		if i > 0 {
-			b.WriteString(mid)
+	tw := newTableWriter(w)
+	tw.SetHeaders(suppressedHeaderNames(cfg)...)
+	for i := range findings {
+		if findings[i].Type != "vulnerability" {
+			continue
 		}
-		b.WriteString(strings.Repeat("─", w+2)) // 1 padding each side
+		tw.AddRow(suppressedRowCells(&findings[i], cfg)...)
 	}
-	b.WriteString(right)
-	return b.String()
-}
-
-// dataLine builds a row like │ val │ val │ val │.
-// If center is true, values are centered; otherwise left-aligned.
-func dataLine(widths []int, cells []string, center bool) string {
-	var b strings.Builder
-	b.WriteString("│")
-	for i, w := range widths {
-		val := ""
-		if i < len(cells) {
-			val = cells[i]
-		}
-		n := utf8.RuneCountInString(val)
-		if center {
-			totalPad := w - n
-			leftPad := totalPad / 2
-			rightPad := totalPad - leftPad
-			b.WriteString(" ")
-			b.WriteString(strings.Repeat(" ", leftPad))
-			b.WriteString(val)
-			b.WriteString(strings.Repeat(" ", rightPad))
-			b.WriteString(" ")
-		} else {
-			b.WriteString(" ")
-			b.WriteString(val)
-			b.WriteString(strings.Repeat(" ", w-n))
-			b.WriteString(" ")
-		}
-		b.WriteString("│")
-	}
-	return b.String()
-}
-
-// wrapText splits text into lines of at most maxWidth runes.
-// Embedded newlines are respected as hard breaks.
-// If maxWidth is 0 or the text fits on one line, returns a single-element slice.
-func wrapText(text string, maxWidth int) []string {
-	// First, split on hard newlines.
-	paragraphs := strings.Split(text, "\n")
-
-	if maxWidth <= 0 {
-		return paragraphs
-	}
-
-	var lines []string
-	for _, para := range paragraphs {
-		lines = append(lines, wrapLine(para, maxWidth)...)
-	}
-	return lines
-}
-
-// wrapLine wraps a single line of text to maxWidth runes with word-boundary breaking.
-func wrapLine(text string, maxWidth int) []string {
-	if utf8.RuneCountInString(text) <= maxWidth {
-		return []string{text}
-	}
-
-	var lines []string
-	runes := []rune(text)
-	for len(runes) > 0 {
-		end := maxWidth
-		if end > len(runes) {
-			end = len(runes)
-		}
-
-		// Try to break at a space for cleaner wrapping.
-		if end < len(runes) {
-			spaceIdx := -1
-			for i := end - 1; i >= end/2; i-- {
-				if runes[i] == ' ' {
-					spaceIdx = i
-					break
-				}
-			}
-			if spaceIdx > 0 {
-				lines = append(lines, string(runes[:spaceIdx]))
-				runes = runes[spaceIdx+1:]
-				continue
-			}
-		}
-
-		lines = append(lines, string(runes[:end]))
-		runes = runes[end:]
-	}
-	return lines
+	tw.Render()
 }
 
 // headerNames returns column header names based on config.
@@ -511,17 +370,4 @@ func hasVulnFindings(findings []types.ModifiedFinding) bool {
 		}
 	}
 	return false
-}
-
-// writeSuppressedTable renders a box-drawn table for suppressed findings.
-func writeSuppressedTable(w io.Writer, findings []types.ModifiedFinding, cfg TableConfig) {
-	headers := suppressedHeaderNames(cfg)
-	var cellRows [][]string
-	for i := range findings {
-		if findings[i].Type != "vulnerability" {
-			continue
-		}
-		cellRows = append(cellRows, suppressedRowCells(&findings[i], cfg))
-	}
-	renderBoxTable(w, headers, cellRows, suppressedColumnWidth)
 }
