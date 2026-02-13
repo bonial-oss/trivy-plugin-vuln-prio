@@ -3,8 +3,10 @@ version = 1
 [[annotations]]
 path = [
   ".gitignore",
+  ".release-please-manifest.json",
   "go.mod",
   "go.sum",
+  "release-please-config.json",
 ]
 precedence = "override"
 SPDX-FileCopyrightText = "2026 Bonial International GmbH"
