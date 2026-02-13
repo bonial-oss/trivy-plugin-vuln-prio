@@ -304,6 +304,127 @@ func TestEnrich_PolicyFailOnEPSSThreshold(t *testing.T) {
 	assert.Len(t, vulns, 3, "expected 3 vulns (policy doesn't filter)")
 }
 
+func TestEnrich_ModifiedFindings(t *testing.T) {
+	epssSource := setupEPSSSource(t)
+	kevSource := setupKEVSource(t)
+	enricher := New(epssSource, kevSource)
+
+	report := makeReport(testVulns()...)
+	// Add a suppressed finding with a CVE that's in both EPSS and KEV.
+	report.Results[0].ExperimentalModifiedFindings = []types.ModifiedFinding{
+		{
+			Type:      "vulnerability",
+			Status:    "ignored",
+			Statement: "Not applicable",
+			Source:    ".trivyignore",
+			Finding: types.Vulnerability{
+				VulnerabilityID:  "CVE-2024-1234",
+				PkgName:          "libexample",
+				InstalledVersion: "1.0.0",
+				Severity:         "CRITICAL",
+			},
+		},
+	}
+
+	result, err := enricher.Enrich(report, Config{})
+	require.NoError(t, err)
+
+	mf := result.Report.Results[0].ExperimentalModifiedFindings
+	require.Len(t, mf, 1)
+
+	finding := mf[0].Finding
+	require.NotNil(t, finding.VulnPrio, "suppressed finding should be enriched with VulnPrio")
+	require.NotNil(t, finding.VulnPrio.EPSS)
+	require.NotNil(t, finding.VulnPrio.EPSS.Score)
+	assert.InEpsilon(t, 0.97, *finding.VulnPrio.EPSS.Score, 0.01)
+	require.NotNil(t, finding.VulnPrio.KEV)
+	assert.True(t, finding.VulnPrio.KEV.Listed)
+	require.NotNil(t, finding.VulnPrio.Risk)
+	assert.Greater(t, *finding.VulnPrio.Risk, 0.0)
+}
+
+func TestEnrich_ModifiedFindings_NotFiltered(t *testing.T) {
+	epssSource := setupEPSSSource(t)
+	kevSource := setupKEVSource(t)
+	enricher := New(epssSource, kevSource)
+
+	report := makeReport(testVulns()...)
+	// Add a suppressed finding with low EPSS score.
+	report.Results[0].ExperimentalModifiedFindings = []types.ModifiedFinding{
+		{
+			Type:      "vulnerability",
+			Status:    "ignored",
+			Statement: "Low risk",
+			Source:    ".trivyignore",
+			Finding: types.Vulnerability{
+				VulnerabilityID:  "CVE-2023-5678",
+				PkgName:          "libanother",
+				InstalledVersion: "2.0.0",
+				Severity:         "HIGH",
+			},
+		},
+	}
+
+	// EPSSThreshold=0.5 should filter regular vulns but NOT suppressed ones.
+	result, err := enricher.Enrich(report, Config{EPSSThreshold: 0.5})
+	require.NoError(t, err)
+
+	// Regular vulns filtered: only CVE-2024-1234 survives (0.97 >= 0.5).
+	vulns := result.Report.Results[0].Vulnerabilities
+	require.Len(t, vulns, 1)
+
+	// Suppressed finding should NOT be filtered (CVE-2023-5678 has EPSS 0.42 < 0.5).
+	mf := result.Report.Results[0].ExperimentalModifiedFindings
+	require.Len(t, mf, 1)
+	assert.Equal(t, "CVE-2023-5678", mf[0].Finding.VulnerabilityID)
+}
+
+func TestEnrich_ModifiedFindings_NoPolicyViolation(t *testing.T) {
+	epssSource := setupEPSSSource(t)
+	kevSource := setupKEVSource(t)
+	enricher := New(epssSource, kevSource)
+
+	// Report with NO regular vulns, only a suppressed KEV vuln.
+	report := &types.Report{
+		SchemaVersion: 2,
+		ArtifactName:  "test-artifact",
+		ArtifactType:  "container_image",
+		Results: []types.Result{
+			{
+				Target: "test-target",
+				Type:   "debian",
+				ExperimentalModifiedFindings: []types.ModifiedFinding{
+					{
+						Type:      "vulnerability",
+						Status:    "ignored",
+						Statement: "Accepted risk",
+						Source:    ".trivyignore",
+						Finding: types.Vulnerability{
+							VulnerabilityID:  "CVE-2024-1234",
+							PkgName:          "libexample",
+							InstalledVersion: "1.0.0",
+							Severity:         "CRITICAL",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	result, err := enricher.Enrich(report, Config{FailOnKEV: true})
+	require.NoError(t, err)
+
+	// Suppressed KEV vulns should NOT trigger policy violation.
+	assert.False(t, result.PolicyViolation, "expected PolicyViolation=false: suppressed vulns should not trigger policy")
+
+	// But the suppressed finding should still be enriched.
+	mf := result.Report.Results[0].ExperimentalModifiedFindings
+	require.Len(t, mf, 1)
+	require.NotNil(t, mf[0].Finding.VulnPrio)
+	require.NotNil(t, mf[0].Finding.VulnPrio.KEV)
+	assert.True(t, mf[0].Finding.VulnPrio.KEV.Listed, "suppressed finding should be enriched with KEV.Listed=true")
+}
+
 func TestEnrich_NoPolicyViolation(t *testing.T) {
 	epssSource := setupEPSSSource(t)
 	kevSource := setupKEVSource(t)
