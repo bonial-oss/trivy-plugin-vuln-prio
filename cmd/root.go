@@ -85,10 +85,15 @@ Usage:
 	return cmd
 }
 
-// run orchestrates the full enrichment pipeline.
+// run orchestrates the full enrichment pipeline using os.Stdin and os.Stdout.
 func run(opts *Options) error {
+	return runWithIO(opts, os.Stdin, os.Stdout)
+}
+
+// runWithIO orchestrates the full enrichment pipeline with injectable I/O.
+func runWithIO(opts *Options, stdin io.Reader, stdout io.Writer) error {
 	// Read all of stdin.
-	data, err := io.ReadAll(os.Stdin)
+	data, err := io.ReadAll(stdin)
 	if err != nil {
 		return fmt.Errorf("reading stdin: %w", err)
 	}
@@ -141,15 +146,15 @@ func run(opts *Options) error {
 		kevSource = kev.NewSource(cacheDir)
 	}
 
-	// Load data sources.
+	// Load data sources. Exit code 2 when download fails with no cache (NFR-1.6).
 	if epssSource != nil {
 		if err := epssSource.Load(opts.SkipDBUpdate); err != nil {
-			return fmt.Errorf("loading EPSS data: %w", err)
+			return &ExitError{Code: 2, Message: fmt.Sprintf("loading EPSS data: %v", err)}
 		}
 	}
 	if kevSource != nil {
 		if err := kevSource.Load(opts.SkipDBUpdate); err != nil {
-			return fmt.Errorf("loading KEV data: %w", err)
+			return &ExitError{Code: 2, Message: fmt.Sprintf("loading KEV data: %v", err)}
 		}
 	}
 
@@ -172,7 +177,7 @@ func run(opts *Options) error {
 		defer f.Close()
 		w = f
 	} else {
-		w = os.Stdout
+		w = stdout
 	}
 
 	var policyViolation bool
@@ -202,6 +207,7 @@ func run(opts *Options) error {
 				ShowRisk:       !opts.NoEPSS && !opts.NoKEV,
 				SortBy:         opts.SortBy,
 				HideSuppressed: opts.HideSuppressed,
+				IsTerminal:     output.IsOutputToTerminal(w),
 			}
 			if err := output.WriteTable(w, result.Report, tableCfg); err != nil {
 				return err
