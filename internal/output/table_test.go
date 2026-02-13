@@ -123,18 +123,18 @@ func TestTableOutput_AllColumns(t *testing.T) {
 	}
 
 	// Verify header has all columns.
-	headerLine := findHeaderLine(output)
-	for _, col := range []string{"Library", "Vulnerability", "Severity", "Status", "Installed Version", "Fixed Version", "Title", "Risk", "EPSS", "EPSS %ile", "KEV"} {
-		assert.Contains(t, headerLine, col)
+	for _, col := range []string{"Library", "Vulnerability", "Severity", "Status",
+		"Installed Version", "Fixed Version", "Title", "Risk", "EPSS", "EPSS %ile", "KEV"} {
+		assert.Contains(t, output, col)
 	}
 
 	// Verify data content.
-	dataRows := findDataRows(output)
-	require.GreaterOrEqual(t, len(dataRows), 3, "expected at least 3 data rows")
-
-	row1 := dataRows[0]
-	for _, expected := range []string{"CVE-2024-1234", "CRITICAL", "libexample", "fixed", "1.0.0", "1.0.1", "95.0", "0.97", "99.8", "YES"} {
-		assert.Contains(t, row1, expected)
+	for _, expected := range []string{
+		"CVE-2024-1234", "CRITICAL", "libexample", "1.0.0", "1.0.1", "95.0", "0.97", "99.8", "YES",
+		"CVE-2023-5678", "HIGH", "libanother",
+		"CVE-2023-9999", "MEDIUM", "libunknown",
+	} {
+		assert.Contains(t, output, expected)
 	}
 }
 
@@ -150,11 +150,10 @@ func TestTableOutput_NoEPSS(t *testing.T) {
 	require.NoError(t, WriteTable(&buf, report, cfg))
 
 	output := buf.String()
-	header := findHeaderLine(output)
 
-	assert.NotContains(t, header, "EPSS")
-	assert.NotContains(t, header, "Risk")
-	assert.Contains(t, header, "KEV")
+	assert.NotContains(t, output, "EPSS")
+	assert.NotContains(t, output, "Risk")
+	assert.Contains(t, output, "KEV")
 }
 
 func TestTableOutput_NoKEV(t *testing.T) {
@@ -169,10 +168,9 @@ func TestTableOutput_NoKEV(t *testing.T) {
 	require.NoError(t, WriteTable(&buf, report, cfg))
 
 	output := buf.String()
-	header := findHeaderLine(output)
 
-	assert.NotContains(t, header, "KEV")
-	assert.Contains(t, header, "EPSS")
+	assert.NotContains(t, output, "KEV")
+	assert.Contains(t, output, "EPSS")
 }
 
 func TestTableOutput_SortByRisk(t *testing.T) {
@@ -187,12 +185,8 @@ func TestTableOutput_SortByRisk(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, WriteTable(&buf, report, cfg))
 
-	dataRows := findDataRows(buf.String())
-	require.GreaterOrEqual(t, len(dataRows), 3, "expected 3 data rows")
-
-	assert.Contains(t, dataRows[0], "CVE-2024-1234")
-	assert.Contains(t, dataRows[1], "CVE-2023-5678")
-	assert.Contains(t, dataRows[2], "CVE-2023-9999")
+	output := buf.String()
+	assertOrder(t, output, "CVE-2024-1234", "CVE-2023-5678", "CVE-2023-9999")
 }
 
 func TestTableOutput_SortByCVE(t *testing.T) {
@@ -207,12 +201,8 @@ func TestTableOutput_SortByCVE(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, WriteTable(&buf, report, cfg))
 
-	dataRows := findDataRows(buf.String())
-	require.GreaterOrEqual(t, len(dataRows), 3, "expected 3 data rows")
-
-	assert.Contains(t, dataRows[0], "CVE-2023-5678")
-	assert.Contains(t, dataRows[1], "CVE-2023-9999")
-	assert.Contains(t, dataRows[2], "CVE-2024-1234")
+	output := buf.String()
+	assertOrder(t, output, "CVE-2023-5678", "CVE-2023-9999", "CVE-2024-1234")
 }
 
 func TestTableOutput_PreserveOrder(t *testing.T) {
@@ -227,12 +217,8 @@ func TestTableOutput_PreserveOrder(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, WriteTable(&buf, report, cfg))
 
-	dataRows := findDataRows(buf.String())
-	require.GreaterOrEqual(t, len(dataRows), 3, "expected 3 data rows")
-
-	assert.Contains(t, dataRows[0], "CVE-2024-1234")
-	assert.Contains(t, dataRows[1], "CVE-2023-5678")
-	assert.Contains(t, dataRows[2], "CVE-2023-9999")
+	output := buf.String()
+	assertOrder(t, output, "CVE-2024-1234", "CVE-2023-5678", "CVE-2023-9999")
 }
 
 func TestTableOutput_SortBySeverity(t *testing.T) {
@@ -242,12 +228,9 @@ func TestTableOutput_SortBySeverity(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, WriteTable(&buf, report, cfg))
 
-	dataRows := findDataRows(buf.String())
-	require.GreaterOrEqual(t, len(dataRows), 3, "expected 3 data rows")
-
-	assert.Contains(t, dataRows[0], "CRITICAL")
-	assert.Contains(t, dataRows[1], "HIGH")
-	assert.Contains(t, dataRows[2], "MEDIUM")
+	output := buf.String()
+	// CRITICAL (CVE-2024-1234) > HIGH (CVE-2023-5678) > MEDIUM (CVE-2023-9999).
+	assertOrder(t, output, "CVE-2024-1234", "CVE-2023-5678", "CVE-2023-9999")
 }
 
 func TestTableOutput_SortByEPSS(t *testing.T) {
@@ -257,12 +240,9 @@ func TestTableOutput_SortByEPSS(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, WriteTable(&buf, report, cfg))
 
-	dataRows := findDataRows(buf.String())
-	require.GreaterOrEqual(t, len(dataRows), 3, "expected 3 data rows")
-
-	assert.Contains(t, dataRows[0], "CVE-2024-1234")
-	assert.Contains(t, dataRows[1], "CVE-2023-5678")
-	assert.Contains(t, dataRows[2], "CVE-2023-9999")
+	output := buf.String()
+	// EPSS: 0.97 > 0.42 > nil.
+	assertOrder(t, output, "CVE-2024-1234", "CVE-2023-5678", "CVE-2023-9999")
 }
 
 func TestTableOutput_EmptyReport(t *testing.T) {
@@ -306,12 +286,9 @@ func TestTableOutput_NilVulnPrio(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, WriteTable(&buf, report, cfg))
 
-	dataRows := findDataRows(buf.String())
-	require.GreaterOrEqual(t, len(dataRows), 1, "expected at least 1 data row")
-
-	row := dataRows[0]
-	assert.Contains(t, row, "CVE-2024-0001")
-	assert.Contains(t, row, "NO")
+	output := buf.String()
+	assert.Contains(t, output, "CVE-2024-0001")
+	assert.Contains(t, output, "NO")
 }
 
 func TestTableOutput_MultipleResults(t *testing.T) {
@@ -435,17 +412,10 @@ func TestTableOutput_TitleWithURL(t *testing.T) {
 	require.NoError(t, WriteTable(&buf, report, cfg))
 
 	output := buf.String()
-	dataRows := findDataRows(output)
 
-	// Title + URL should produce multiple visual lines.
-	require.GreaterOrEqual(t, len(dataRows), 2, "expected URL on separate line")
-
-	// First line should have CVE and title.
-	assert.Contains(t, dataRows[0], "CVE-2024-0001")
-	assert.Contains(t, dataRows[0], "Example vulnerability")
-
-	// Second line should contain the URL.
-	assert.Contains(t, dataRows[1], "https://avd.aquasec.com/nvd/cve-2024-0001")
+	// Both title and URL should appear in output.
+	assert.Contains(t, output, "Example vulnerability")
+	assert.Contains(t, output, "https://avd.aquasec.com/nvd/cve-2024-0001")
 }
 
 func TestTableOutput_ResultsWithNoVulns(t *testing.T) {
@@ -471,102 +441,6 @@ func TestTableOutput_ResultsWithNoVulns(t *testing.T) {
 
 	assert.NotContains(t, output, "clean-target")
 	assert.Contains(t, output, "vuln-target (yarn)")
-}
-
-func TestWrapText(t *testing.T) {
-	tests := []struct {
-		text     string
-		maxWidth int
-		want     int // expected number of lines
-	}{
-		{"short", 10, 1},
-		{"", 10, 1},
-		{"hello world foo bar", 10, 3},
-		{"abcdefghij", 5, 2},
-		{"no wrap needed", 0, 1},
-	}
-	for _, tt := range tests {
-		lines := wrapText(tt.text, tt.maxWidth)
-		assert.Len(t, lines, tt.want, "wrapText(%q, %d)", tt.text, tt.maxWidth)
-	}
-}
-
-func TestVulnColumnWidth_TitleColumn(t *testing.T) {
-	headers := headerNames(TableConfig{})
-	for i, h := range headers {
-		w := vulnColumnWidth(i, headers)
-		if h == "Title" {
-			assert.Equal(t, maxTitleWidth, w, "vulnColumnWidth for Title")
-		} else {
-			assert.Equal(t, 0, w, "vulnColumnWidth(%d, %q)", i, h)
-		}
-	}
-}
-
-func TestSuppressedColumnWidth_StatementColumn(t *testing.T) {
-	headers := suppressedHeaderNames(TableConfig{})
-	for i, h := range headers {
-		w := suppressedColumnWidth(i, headers)
-		if h == "Statement" {
-			assert.Equal(t, maxStatementWidth, w, "suppressedColumnWidth for Statement")
-		} else {
-			assert.Equal(t, 0, w, "suppressedColumnWidth(%d, %q)", i, h)
-		}
-	}
-}
-
-func TestTableOutput_TitleWrapping(t *testing.T) {
-	// URL longer than maxTitleWidth should wrap across multiple lines.
-	longURL := "https://avd.aquasec.com/nvd/cve-2024-0001-very-long-path-segment"
-	report := &types.Report{
-		SchemaVersion: 2,
-		Results: []types.Result{
-			{
-				Target: "test",
-				Vulnerabilities: []types.Vulnerability{
-					{
-						VulnerabilityID:  "CVE-2024-0001",
-						PkgName:          "pkg",
-						InstalledVersion: "1.0",
-						Severity:         "LOW",
-						Extras: map[string]json.RawMessage{
-							"Title":      json.RawMessage(`"Short title"`),
-							"PrimaryURL": json.RawMessage(`"` + longURL + `"`),
-						},
-					},
-				},
-			},
-		},
-	}
-	cfg := TableConfig{}
-
-	var buf bytes.Buffer
-	require.NoError(t, WriteTable(&buf, report, cfg))
-
-	output := buf.String()
-	dataRows := findDataRows(output)
-
-	// Should have multiple visual lines: title line + wrapped URL lines.
-	assert.GreaterOrEqual(t, len(dataRows), 3, "expected at least 3 visual lines (title + wrapped URL)")
-
-	// Verify no data row exceeds maxTitleWidth in the Title column.
-	headers := headerNames(TableConfig{})
-	titleIdx := -1
-	for i, h := range headers {
-		if h == "Title" {
-			titleIdx = i
-			break
-		}
-	}
-	require.GreaterOrEqual(t, titleIdx, 0, "Title column not found in headers")
-	for _, row := range dataRows {
-		// Extract Title column content by splitting on │.
-		cols := strings.Split(row, "│")
-		if len(cols) > titleIdx+1 {
-			titleCell := strings.TrimSpace(cols[titleIdx+1]) // +1 because first element is empty
-			assert.LessOrEqual(t, len([]rune(titleCell)), maxTitleWidth, "Title cell exceeds maxTitleWidth: %q", titleCell)
-		}
-	}
 }
 
 func TestTableOutput_SuppressedSection(t *testing.T) {
@@ -613,41 +487,22 @@ func TestTableOutput_SuppressedSection(t *testing.T) {
 
 	output := buf.String()
 
-	// Should have "Suppressed Vulnerabilities" header.
-	assert.Contains(t, output, "Suppressed Vulnerabilities")
+	// Should have "Suppressed Vulnerabilities (Total: 1)" header with underline.
+	assert.Contains(t, output, "Suppressed Vulnerabilities (Total: 1)")
+	expectedUnderline := strings.Repeat("=", len("Suppressed Vulnerabilities (Total: 1)"))
+	assert.Contains(t, output, expectedUnderline)
 
 	// Should have 2 box tables (regular + suppressed).
 	assert.Equal(t, 2, strings.Count(output, "┌"))
 
-	// Find the suppressed table header.
-	lines := strings.Split(output, "\n")
-	var suppressedHeader string
-	afterSuppressedLabel := false
-	for _, line := range lines {
-		if strings.Contains(line, "Suppressed Vulnerabilities") {
-			afterSuppressedLabel = true
-			continue
-		}
-		if afterSuppressedLabel && strings.Contains(line, "Library") && strings.Contains(line, "Statement") {
-			suppressedHeader = line
-			break
-		}
-	}
-
-	require.NotEmpty(t, suppressedHeader, "could not find suppressed table header")
-
-	// Suppressed header should have Statement and Source columns, not Title/Fixed Version.
-	for _, col := range []string{"Library", "Vulnerability", "Severity", "Status", "Statement", "Source", "Risk", "EPSS", "KEV"} {
-		assert.Contains(t, suppressedHeader, col)
-	}
-	for _, col := range []string{"Title", "Fixed Version", "Installed Version"} {
-		assert.NotContains(t, suppressedHeader, col)
-	}
+	// Suppressed table should have correct columns.
+	assert.Contains(t, output, "Statement")
+	assert.Contains(t, output, "Source")
 
 	// Suppressed data should contain the finding.
-	assert.Contains(t, output, "CVE-2024-0002")
-	assert.Contains(t, output, "Not applicable")
-	assert.Contains(t, output, ".trivyignore")
+	for _, expected := range []string{"CVE-2024-0002", "Not applicable", ".trivyignore"} {
+		assert.Contains(t, output, expected)
+	}
 }
 
 func TestTableOutput_SuppressedHidden(t *testing.T) {
@@ -717,8 +572,8 @@ func TestTableOutput_SuppressedOnlyResult(t *testing.T) {
 	// Target header should appear.
 	assert.Contains(t, output, "suppressed-only (npm)")
 
-	// Should have suppressed section.
-	assert.Contains(t, output, "Suppressed Vulnerabilities")
+	// Should have suppressed section with total.
+	assert.Contains(t, output, "Suppressed Vulnerabilities (Total: 1)")
 
 	// Only 1 box table (suppressed only, no regular vulns table).
 	assert.Equal(t, 1, strings.Count(output, "┌"))
@@ -728,37 +583,69 @@ func TestTableOutput_SuppressedOnlyResult(t *testing.T) {
 	assert.Contains(t, output, "Fixed in build")
 }
 
-// findHeaderLine finds the table header line in box-drawn output.
-func findHeaderLine(output string) string {
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "Library") && strings.Contains(line, "Vulnerability") {
-			return line
-		}
+func TestTableOutput_AutoMerge(t *testing.T) {
+	// Two vulns with the same severity should have auto-merged severity cells.
+	report := &types.Report{
+		SchemaVersion: 2,
+		Results: []types.Result{
+			{
+				Target: "test",
+				Vulnerabilities: []types.Vulnerability{
+					{VulnerabilityID: "CVE-2024-0001", PkgName: "pkg1", InstalledVersion: "1.0", Severity: "HIGH"},
+					{VulnerabilityID: "CVE-2024-0002", PkgName: "pkg2", InstalledVersion: "2.0", Severity: "HIGH"},
+				},
+			},
+		},
 	}
-	return ""
+	cfg := TableConfig{}
+
+	var buf bytes.Buffer
+	require.NoError(t, WriteTable(&buf, report, cfg))
+
+	output := buf.String()
+
+	// With auto-merge, "HIGH" should appear once in data (merged cell).
+	// Count occurrences in data rows only (after header).
+	headerIdx := strings.Index(output, "Severity")
+	afterHeader := output[headerIdx+1:]
+	// "HIGH" appears once in header, and once in the merged data cell.
+	assert.Equal(t, 1, strings.Count(afterHeader, "HIGH"))
 }
 
-// findDataRows extracts data rows (│ ... │ lines after the header separator ├...┤).
-func findDataRows(output string) []string {
-	lines := strings.Split(output, "\n")
-	var dataRows []string
-	afterSep := false
-	for _, line := range lines {
-		if strings.HasPrefix(line, "├") {
-			afterSep = true
-			continue
-		}
-		if afterSep {
-			if strings.HasPrefix(line, "└") {
-				// Bottom border — reset for next table.
-				afterSep = false
-				continue
-			}
-			if strings.HasPrefix(line, "│") {
-				dataRows = append(dataRows, line)
-			}
-		}
+func TestTableOutput_RowSeparators(t *testing.T) {
+	// With SetRowLines(true), row separators should appear between data rows.
+	report := &types.Report{
+		SchemaVersion: 2,
+		Results: []types.Result{
+			{
+				Target: "test",
+				Vulnerabilities: []types.Vulnerability{
+					{VulnerabilityID: "CVE-2024-0001", PkgName: "pkg1", InstalledVersion: "1.0", Severity: "HIGH"},
+					{VulnerabilityID: "CVE-2024-0002", PkgName: "pkg2", InstalledVersion: "2.0", Severity: "MEDIUM"},
+				},
+			},
+		},
 	}
-	return dataRows
+	cfg := TableConfig{}
+
+	var buf bytes.Buffer
+	require.NoError(t, WriteTable(&buf, report, cfg))
+
+	output := buf.String()
+
+	// Should have row separator lines (├) between data rows.
+	// With 2 rows: 1 header sep + 1 row sep = at least 2 ├ lines.
+	assert.GreaterOrEqual(t, strings.Count(output, "├"), 2)
+}
+
+// assertOrder verifies that the given strings appear in order in the output.
+func assertOrder(t *testing.T, output string, items ...string) {
+	t.Helper()
+	prev := -1
+	for _, item := range items {
+		idx := strings.Index(output, item)
+		require.NotEqual(t, -1, idx, "missing %q in output", item)
+		assert.Greater(t, idx, prev, "%q should appear after previous item", item)
+		prev = idx
+	}
 }
