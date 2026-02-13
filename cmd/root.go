@@ -202,6 +202,7 @@ func run(opts *Options) error {
 				ShowRisk:       !opts.NoEPSS && !opts.NoKEV,
 				SortBy:         opts.SortBy,
 				HideSuppressed: opts.HideSuppressed,
+				IsTerminal:     output.IsOutputToTerminal(w),
 			}
 			if err := output.WriteTable(w, result.Report, tableCfg); err != nil {
 				return err

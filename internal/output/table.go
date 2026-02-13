@@ -7,11 +7,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"unicode/utf8"
 
 	aqtable "github.com/aquasecurity/table"
+	"github.com/aquasecurity/tml"
+	"github.com/fatih/color"
+	"golang.org/x/term"
 
 	"github.com/bonial-oss/trivy-plugin-vuln-prio/internal/types"
 )
@@ -25,6 +29,13 @@ type TableConfig struct {
 	ShowRisk       bool   // true only when both EPSS and KEV enabled
 	SortBy         string // "risk", "epss", "severity", "cve", "" (preserve order)
 	HideSuppressed bool   // exclude suppressed vulnerabilities section
+	IsTerminal     bool   // true when output goes to a terminal (enables ANSI styling)
+}
+
+// IsOutputToTerminal returns true if the writer is stdout connected to a
+// character device (TTY). Matching Trivy's behavior, returns false on Windows.
+func IsOutputToTerminal(output io.Writer) bool {
+	return output == os.Stdout && term.IsTerminal(int(os.Stdout.Fd()))
 }
 
 // vulnRow holds a reference to a vulnerability for table rendering.
@@ -50,7 +61,7 @@ func WriteTable(w io.Writer, report *types.Report, cfg TableConfig) error {
 		}
 		first = false
 
-		writeTargetHeader(w, result)
+		writeTargetHeader(w, result, cfg.IsTerminal)
 
 		if len(vulns) > 0 {
 			rows := make([]vulnRow, len(vulns))
@@ -73,22 +84,31 @@ func WriteTable(w io.Writer, report *types.Report, cfg TableConfig) error {
 	return nil
 }
 
-// writeTargetHeader writes the target name, separator, and severity summary.
-func writeTargetHeader(w io.Writer, result *types.Result) {
+// writeTargetHeader writes the target name with formatting and severity summary.
+func writeTargetHeader(w io.Writer, result *types.Result, isTerminal bool) {
 	target := result.Target
 	if result.Type != "" {
 		target = fmt.Sprintf("%s (%s)", result.Target, result.Type)
 	}
-	fmt.Fprintln(w, target)
-	fmt.Fprintln(w, strings.Repeat("=", utf8.RuneCountInString(target)))
+	if isTerminal {
+		_ = tml.Fprintf(w, "<underline><bold>%s</bold></underline>\n", target)
+	} else {
+		fmt.Fprintln(w, target)
+		fmt.Fprintln(w, strings.Repeat("=", utf8.RuneCountInString(target)))
+	}
 	fmt.Fprintln(w, severitySummary(result.Vulnerabilities))
 	fmt.Fprintln(w)
 }
 
 // newTableWriter creates a table writer with the standard configuration
 // matching Trivy's output format: borders, auto-merge, and row separators.
-func newTableWriter(w io.Writer) *aqtable.Table {
+// When isTerminal is true, header and line styles use ANSI formatting.
+func newTableWriter(w io.Writer, isTerminal bool) *aqtable.Table {
 	tw := aqtable.New(w)
+	if isTerminal {
+		tw.SetHeaderStyle(aqtable.StyleBold)
+		tw.SetLineStyle(aqtable.StyleDim)
+	}
 	tw.SetBorders(true)
 	tw.SetAutoMerge(true)
 	tw.SetRowLines(true)
@@ -97,7 +117,7 @@ func newTableWriter(w io.Writer) *aqtable.Table {
 
 // writeVulnTable renders a vulnerability table using aquasecurity/table.
 func writeVulnTable(w io.Writer, rows []vulnRow, cfg TableConfig) {
-	tw := newTableWriter(w)
+	tw := newTableWriter(w, cfg.IsTerminal)
 	tw.SetHeaders(headerNames(cfg)...)
 	for _, row := range rows {
 		tw.AddRow(rowCells(row.vuln, cfg)...)
@@ -118,10 +138,14 @@ func writeSuppressedSection(w io.Writer, findings []types.ModifiedFinding, cfg T
 	}
 
 	title := fmt.Sprintf("Suppressed Vulnerabilities (Total: %d)", total)
-	fmt.Fprintf(w, "\n%s\n", title)
-	fmt.Fprintf(w, "%s\n", strings.Repeat("=", utf8.RuneCountInString(title)))
+	if cfg.IsTerminal {
+		_ = tml.Fprintf(w, "\n<underline>%s</underline>\n\n", title)
+	} else {
+		fmt.Fprintf(w, "\n%s\n", title)
+		fmt.Fprintf(w, "%s\n", strings.Repeat("=", utf8.RuneCountInString(title)))
+	}
 
-	tw := newTableWriter(w)
+	tw := newTableWriter(w, cfg.IsTerminal)
 	tw.SetHeaders(suppressedHeaderNames(cfg)...)
 	for i := range findings {
 		if findings[i].Type != "vulnerability" {
@@ -149,14 +173,18 @@ func headerNames(cfg TableConfig) []string {
 
 // rowCells returns the cell values for a single vulnerability row.
 func rowCells(v *types.Vulnerability, cfg TableConfig) []string {
+	severity := v.Severity
+	if cfg.IsTerminal {
+		severity = colorizeSeverity(severity)
+	}
 	cols := []string{
 		v.PkgName,
 		v.VulnerabilityID,
-		v.Severity,
+		severity,
 		extraString(v, "Status"),
 		v.InstalledVersion,
 		v.FixedVersion,
-		titleWithURL(v),
+		titleWithURL(v, cfg.IsTerminal),
 	}
 
 	if cfg.ShowRisk {
@@ -192,6 +220,23 @@ func severitySummary(vulns []types.Vulnerability) string {
 	}
 	return fmt.Sprintf("Total: %d (UNKNOWN: %d, LOW: %d, MEDIUM: %d, HIGH: %d, CRITICAL: %d)",
 		len(vulns), counts["UNKNOWN"], counts["LOW"], counts["MEDIUM"], counts["HIGH"], counts["CRITICAL"])
+}
+
+// severityColors maps severity names to color functions matching Trivy's palette.
+var severityColors = map[string]func(a ...any) string{
+	"UNKNOWN":  color.New(color.FgCyan).SprintFunc(),
+	"LOW":      color.New(color.FgBlue).SprintFunc(),
+	"MEDIUM":   color.New(color.FgYellow).SprintFunc(),
+	"HIGH":     color.New(color.FgHiRed).SprintFunc(),
+	"CRITICAL": color.New(color.FgRed).SprintFunc(),
+}
+
+// colorizeSeverity returns the severity string wrapped in ANSI color codes.
+func colorizeSeverity(severity string) string {
+	if fn, ok := severityColors[strings.ToUpper(severity)]; ok {
+		return fn(severity)
+	}
+	return severity
 }
 
 // severityRank returns a numeric rank for sorting (higher = more severe).
@@ -254,11 +299,15 @@ func epssValue(v *types.Vulnerability) float64 {
 
 // titleWithURL builds the Title cell content: truncates the title to
 // maxTitleWords words (matching Trivy) and appends PrimaryURL on a new line.
-func titleWithURL(v *types.Vulnerability) string {
+// When isTerminal is true, the URL is colored blue.
+func titleWithURL(v *types.Vulnerability, isTerminal bool) string {
 	title := extraString(v, "Title")
 	title = truncateWords(title, maxTitleWords)
 	url := extraString(v, "PrimaryURL")
 	if url != "" {
+		if isTerminal {
+			url = tml.Sprintf("<blue>%s</blue>", url)
+		}
 		if title != "" {
 			return title + "\n" + url
 		}
@@ -342,10 +391,14 @@ func suppressedHeaderNames(cfg TableConfig) []string {
 // suppressedRowCells returns the cell values for a single suppressed finding row.
 func suppressedRowCells(mf *types.ModifiedFinding, cfg TableConfig) []string {
 	v := &mf.Finding
+	severity := v.Severity
+	if cfg.IsTerminal {
+		severity = colorizeSeverity(severity)
+	}
 	cols := []string{
 		v.PkgName,
 		v.VulnerabilityID,
-		v.Severity,
+		severity,
 		mf.Status,
 		mf.Statement,
 		mf.Source,

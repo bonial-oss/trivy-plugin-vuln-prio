@@ -638,6 +638,161 @@ func TestTableOutput_RowSeparators(t *testing.T) {
 	assert.GreaterOrEqual(t, strings.Count(output, "├"), 2)
 }
 
+func TestIsOutputToTerminal_NonStdout(t *testing.T) {
+	var buf bytes.Buffer
+	assert.False(t, IsOutputToTerminal(&buf), "should return false for non-stdout writer")
+}
+
+func TestColorizeSeverity(t *testing.T) {
+	tests := []struct {
+		severity string
+		wantRaw  bool // true if no color codes expected
+	}{
+		{"CRITICAL", false},
+		{"HIGH", false},
+		{"MEDIUM", false},
+		{"LOW", false},
+		{"UNKNOWN", false},
+		{"OTHER", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.severity, func(t *testing.T) {
+			got := colorizeSeverity(tt.severity)
+			if tt.wantRaw {
+				assert.Equal(t, tt.severity, got, "unknown severity should be returned as-is")
+			} else {
+				assert.Contains(t, got, tt.severity, "colorized output should contain severity text")
+			}
+		})
+	}
+}
+
+func TestTableOutput_TerminalTargetHeader(t *testing.T) {
+	report := &types.Report{
+		SchemaVersion: 2,
+		Results: []types.Result{
+			{
+				Target: "test:latest",
+				Type:   "debian",
+				Vulnerabilities: []types.Vulnerability{
+					{VulnerabilityID: "CVE-2024-0001", PkgName: "pkg", InstalledVersion: "1.0", Severity: "HIGH"},
+				},
+			},
+		},
+	}
+
+	// Non-terminal: should have "===" underline.
+	var bufPlain bytes.Buffer
+	require.NoError(t, WriteTable(&bufPlain, report, TableConfig{}))
+	plain := bufPlain.String()
+	assert.Contains(t, plain, "===")
+
+	// Terminal: should NOT have "===" underline (uses ANSI bold+underline).
+	var bufTerm bytes.Buffer
+	require.NoError(t, WriteTable(&bufTerm, report, TableConfig{IsTerminal: true}))
+	term := bufTerm.String()
+	assert.NotContains(t, term, "===")
+	// Target name should still be present.
+	assert.Contains(t, term, "test:latest")
+}
+
+func TestTableOutput_TerminalSuppressedHeader(t *testing.T) {
+	report := &types.Report{
+		SchemaVersion: 2,
+		Results: []types.Result{
+			{
+				Target: "test:latest",
+				Vulnerabilities: []types.Vulnerability{
+					{VulnerabilityID: "CVE-2024-0001", PkgName: "pkg1", InstalledVersion: "1.0", Severity: "HIGH"},
+				},
+				ExperimentalModifiedFindings: []types.ModifiedFinding{
+					{
+						Type:   "vulnerability",
+						Status: "ignored",
+						Source: ".trivyignore",
+						Finding: types.Vulnerability{
+							VulnerabilityID: "CVE-2024-0002",
+							PkgName:         "pkg2",
+							Severity:        "MEDIUM",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Terminal: suppressed header should NOT have "===" underline.
+	var buf bytes.Buffer
+	require.NoError(t, WriteTable(&buf, report, TableConfig{IsTerminal: true}))
+
+	output := buf.String()
+	assert.NotContains(t, output, "===")
+	assert.Contains(t, output, "Suppressed Vulnerabilities (Total: 1)")
+}
+
+func TestTableOutput_TerminalSeverityColorized(t *testing.T) {
+	report := &types.Report{
+		SchemaVersion: 2,
+		Results: []types.Result{
+			{
+				Target: "test",
+				Vulnerabilities: []types.Vulnerability{
+					{VulnerabilityID: "CVE-2024-0001", PkgName: "pkg", InstalledVersion: "1.0", Severity: "CRITICAL"},
+				},
+			},
+		},
+	}
+
+	var bufPlain bytes.Buffer
+	require.NoError(t, WriteTable(&bufPlain, report, TableConfig{}))
+	var bufTerm bytes.Buffer
+	require.NoError(t, WriteTable(&bufTerm, report, TableConfig{IsTerminal: true}))
+
+	// Terminal output should differ from plain (ANSI codes present).
+	// Both should contain the CVE ID.
+	assert.Contains(t, bufTerm.String(), "CVE-2024-0001")
+	assert.Contains(t, bufPlain.String(), "CVE-2024-0001")
+
+	// Terminal output should be longer due to ANSI escape codes.
+	assert.Greater(t, len(bufTerm.Bytes()), len(bufPlain.Bytes()))
+}
+
+func TestTableOutput_TerminalURLColored(t *testing.T) {
+	report := &types.Report{
+		SchemaVersion: 2,
+		Results: []types.Result{
+			{
+				Target: "test",
+				Vulnerabilities: []types.Vulnerability{
+					{
+						VulnerabilityID:  "CVE-2024-0001",
+						PkgName:          "pkg",
+						InstalledVersion: "1.0",
+						Severity:         "LOW",
+						Extras: map[string]json.RawMessage{
+							"Title":      json.RawMessage(`"A vulnerability"`),
+							"PrimaryURL": json.RawMessage(`"https://example.com/cve"`),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	var bufPlain bytes.Buffer
+	require.NoError(t, WriteTable(&bufPlain, report, TableConfig{}))
+	var bufTerm bytes.Buffer
+	require.NoError(t, WriteTable(&bufTerm, report, TableConfig{IsTerminal: true}))
+
+	// Both should contain the URL.
+	assert.Contains(t, bufPlain.String(), "https://example.com/cve")
+	assert.Contains(t, bufTerm.String(), "https://example.com/cve")
+
+	// Terminal output should be longer due to ANSI codes on URL.
+	assert.Greater(t, len(bufTerm.Bytes()), len(bufPlain.Bytes()))
+}
+
 // assertOrder verifies that the given strings appear in order in the output.
 func assertOrder(t *testing.T, output string, items ...string) {
 	t.Helper()
