@@ -1,0 +1,52 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "alpine:latest",
+  "ArtifactType": "container_image",
+  "Results": [
+    {
+      "Target": "alpine:latest (alpine 3.18.4)",
+      "Class": "os-pkgs",
+      "Type": "alpine",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2024-1234",
+          "PkgName": "openssl",
+          "InstalledVersion": "1.1.1k-r0",
+          "FixedVersion": "1.1.1l-r0",
+          "Severity": "CRITICAL",
+          "Title": "OpenSSL: Example vulnerability",
+          "Description": "An example critical vulnerability in OpenSSL."
+        }
+      ],
+      "ExperimentalModifiedFindings": [
+        {
+          "Type": "vulnerability",
+          "Status": "ignored",
+          "Statement": "Not applicable to our environment",
+          "Source": ".trivyignore",
+          "Finding": {
+            "VulnerabilityID": "CVE-2023-5678",
+            "PkgName": "curl",
+            "InstalledVersion": "7.88.1-r0",
+            "Severity": "HIGH",
+            "Title": "curl: Example suppressed vulnerability"
+          }
+        },
+        {
+          "Type": "vulnerability",
+          "Status": "not_affected",
+          "Statement": "Fixed in our build",
+          "Source": "VEX",
+          "Finding": {
+            "VulnerabilityID": "CVE-2023-9999",
+            "PkgName": "zlib",
+            "InstalledVersion": "1.2.13-r0",
+            "FixedVersion": "1.2.14-r0",
+            "Severity": "MEDIUM",
+            "Title": "zlib: Example VEX suppressed vulnerability"
+          }
+        }
+      ]
+    }
+  ]
+}

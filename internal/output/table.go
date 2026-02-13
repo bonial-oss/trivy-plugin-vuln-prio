@@ -26,7 +26,7 @@ type TableConfig struct {
 	ShowKEV        bool
 	ShowRisk       bool   // true only when both EPSS and KEV enabled
 	SortBy         string // "risk", "epss", "severity", "cve", "" (preserve order)
-	ShowSuppressed bool   // include suppressed vulnerabilities section
+	HideSuppressed bool   // exclude suppressed vulnerabilities section
 }
 
 // vulnRow holds a reference to a vulnerability for table rendering.
@@ -41,7 +41,7 @@ func WriteTable(w io.Writer, report *types.Report, cfg TableConfig) error {
 	for i := range report.Results {
 		result := &report.Results[i]
 		vulns := result.Vulnerabilities
-		hasSuppressed := cfg.ShowSuppressed && hasVulnFindings(result.ExperimentalModifiedFindings)
+		hasSuppressed := !cfg.HideSuppressed && hasVulnFindings(result.ExperimentalModifiedFindings)
 
 		if len(vulns) == 0 && !hasSuppressed {
 			continue

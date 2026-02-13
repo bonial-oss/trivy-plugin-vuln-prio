@@ -605,7 +605,7 @@ func TestTableOutput_SuppressedSection(t *testing.T) {
 		ShowEPSS:       true,
 		ShowKEV:        true,
 		ShowRisk:       true,
-		ShowSuppressed: true,
+		HideSuppressed: false,
 	}
 
 	var buf bytes.Buffer
@@ -673,8 +673,7 @@ func TestTableOutput_SuppressedHidden(t *testing.T) {
 			},
 		},
 	}
-	// ShowSuppressed=false (default).
-	cfg := TableConfig{}
+	cfg := TableConfig{HideSuppressed: true}
 
 	var buf bytes.Buffer
 	require.NoError(t, WriteTable(&buf, report, cfg))
@@ -708,7 +707,7 @@ func TestTableOutput_SuppressedOnlyResult(t *testing.T) {
 			},
 		},
 	}
-	cfg := TableConfig{ShowSuppressed: true}
+	cfg := TableConfig{}
 
 	var buf bytes.Buffer
 	require.NoError(t, WriteTable(&buf, report, cfg))

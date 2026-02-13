@@ -42,6 +42,7 @@ type Options struct {
 	SortBy              string
 	SkipDBUpdate        bool
 	CacheDir            string
+	HideSuppressed      bool
 }
 
 // NewRootCommand creates the root cobra command with all flags.
@@ -58,6 +59,7 @@ Known Exploited Vulnerabilities (KEV) status, and a composite risk score.
 
 Usage:
   trivy image -f json alpine:latest | trivy vuln-prio
+  trivy image -f json alpine:latest | trivy vuln-prio --format table
   trivy image -f sarif alpine:latest | trivy vuln-prio --format sarif`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -78,6 +80,7 @@ Usage:
 	flags.StringVar(&opts.SortBy, "sort-by", "risk", "Sort table by: risk, epss, severity, cve")
 	flags.BoolVar(&opts.SkipDBUpdate, "skip-db-update", false, "Use cached data without update check")
 	flags.StringVar(&opts.CacheDir, "cache-dir", "", "Override cache directory")
+	flags.BoolVar(&opts.HideSuppressed, "hide-suppressed", false, "Exclude suppressed/ignored vulnerabilities from output")
 
 	return cmd
 }
@@ -184,15 +187,21 @@ func run(opts *Options) error {
 		// Write output.
 		switch opts.Format {
 		case "json":
+			if opts.HideSuppressed {
+				for i := range result.Report.Results {
+					result.Report.Results[i].ExperimentalModifiedFindings = nil
+				}
+			}
 			if err := output.WriteJSON(w, result.Report); err != nil {
 				return err
 			}
 		case "table":
 			tableCfg := output.TableConfig{
-				ShowEPSS: !opts.NoEPSS,
-				ShowKEV:  !opts.NoKEV,
-				ShowRisk: !opts.NoEPSS && !opts.NoKEV,
-				SortBy:   opts.SortBy,
+				ShowEPSS:       !opts.NoEPSS,
+				ShowKEV:        !opts.NoKEV,
+				ShowRisk:       !opts.NoEPSS && !opts.NoKEV,
+				SortBy:         opts.SortBy,
+				HideSuppressed: opts.HideSuppressed,
 			}
 			if err := output.WriteTable(w, result.Report, tableCfg); err != nil {
 				return err
