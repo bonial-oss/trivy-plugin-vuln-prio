@@ -4,21 +4,29 @@
 package output
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
 	"strings"
-	"text/tabwriter"
+	"unicode/utf8"
 
 	"github.com/bonial-oss/trivy-plugin-vuln-prio/internal/types"
 )
 
+const (
+	maxTitleWords     = 12
+	maxTitleWidth     = 44
+	maxStatementWidth = 80
+)
+
 // TableConfig controls which columns are displayed and how rows are sorted.
 type TableConfig struct {
-	ShowEPSS bool
-	ShowKEV  bool
-	ShowRisk bool   // true only when both EPSS and KEV enabled
-	SortBy   string // "risk", "epss", "severity", "cve", "" (preserve order)
+	ShowEPSS       bool
+	ShowKEV        bool
+	ShowRisk       bool   // true only when both EPSS and KEV enabled
+	SortBy         string // "risk", "epss", "severity", "cve", "" (preserve order)
+	ShowSuppressed bool   // include suppressed vulnerabilities section
 }
 
 // vulnRow holds a reference to a vulnerability for table rendering.
@@ -27,36 +35,304 @@ type vulnRow struct {
 	index int // original index for stable sort
 }
 
-// WriteTable writes an enriched report as a formatted table.
+// WriteTable writes an enriched report as a box-drawn table grouped by target.
 func WriteTable(w io.Writer, report *types.Report, cfg TableConfig) error {
-	// Step 1: Collect all vulnerabilities across all results into a flat slice.
-	var rows []vulnRow
-	idx := 0
+	first := true
 	for i := range report.Results {
-		for j := range report.Results[i].Vulnerabilities {
-			rows = append(rows, vulnRow{
-				vuln:  &report.Results[i].Vulnerabilities[j],
-				index: idx,
-			})
-			idx++
+		result := &report.Results[i]
+		vulns := result.Vulnerabilities
+		hasSuppressed := cfg.ShowSuppressed && hasVulnFindings(result.ExperimentalModifiedFindings)
+
+		if len(vulns) == 0 && !hasSuppressed {
+			continue
+		}
+
+		if !first {
+			fmt.Fprintln(w)
+		}
+		first = false
+
+		writeTargetHeader(w, result)
+
+		if len(vulns) > 0 {
+			rows := make([]vulnRow, len(vulns))
+			for j := range vulns {
+				rows[j] = vulnRow{vuln: &vulns[j], index: j}
+			}
+			sortRows(rows, cfg.SortBy)
+			writeBoxTable(w, rows, cfg)
+		}
+
+		if hasSuppressed {
+			if len(vulns) > 0 {
+				fmt.Fprintln(w)
+			}
+			fmt.Fprintln(w, "Suppressed Vulnerabilities")
+			writeSuppressedTable(w, result.ExperimentalModifiedFindings, cfg)
 		}
 	}
 
-	// Step 2: Sort by the configured field.
-	sortRows(rows, cfg.SortBy)
-
-	// Step 3: Write header and data rows.
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-
-	header := buildHeader(cfg)
-	fmt.Fprintln(tw, header)
-
-	for _, row := range rows {
-		line := buildRow(row.vuln, cfg)
-		fmt.Fprintln(tw, line)
+	if first {
+		writeBoxTable(w, nil, cfg)
 	}
 
-	return tw.Flush()
+	return nil
+}
+
+// writeTargetHeader writes the target name, separator, and severity summary.
+func writeTargetHeader(w io.Writer, result *types.Result) {
+	target := result.Target
+	if result.Type != "" {
+		target = fmt.Sprintf("%s (%s)", result.Target, result.Type)
+	}
+	fmt.Fprintln(w, target)
+	fmt.Fprintln(w, strings.Repeat("=", utf8.RuneCountInString(target)))
+	fmt.Fprintln(w, severitySummary(result.Vulnerabilities))
+	fmt.Fprintln(w)
+}
+
+// columnWidthFn returns the max display width for column colIndex, or 0 for content-driven.
+type columnWidthFn func(colIndex int, headers []string) int
+
+// vulnColumnWidth caps the Title column to keep the overall table width manageable.
+func vulnColumnWidth(colIndex int, headers []string) int {
+	if colIndex < len(headers) && headers[colIndex] == "Title" {
+		return maxTitleWidth
+	}
+	return 0
+}
+
+// suppressedColumnWidth caps the Statement column for readability.
+func suppressedColumnWidth(colIndex int, headers []string) int {
+	if colIndex < len(headers) && headers[colIndex] == "Statement" {
+		return maxStatementWidth
+	}
+	return 0
+}
+
+// writeBoxTable renders a box-drawn table for vulnerability rows.
+func writeBoxTable(w io.Writer, rows []vulnRow, cfg TableConfig) {
+	headers := headerNames(cfg)
+	var cellRows [][]string
+	for _, row := range rows {
+		cellRows = append(cellRows, rowCells(row.vuln, cfg))
+	}
+	renderBoxTable(w, headers, cellRows, vulnColumnWidth)
+}
+
+// renderBoxTable draws a box-drawn table with the given headers, cell data, and width function.
+func renderBoxTable(w io.Writer, headers []string, cellRows [][]string, maxWidth columnWidthFn) {
+	numCols := len(headers)
+
+	// Compute column widths from headers and data.
+	widths := make([]int, numCols)
+	for i, h := range headers {
+		widths[i] = utf8.RuneCountInString(h)
+	}
+	for _, cells := range cellRows {
+		for i, cell := range cells {
+			lines := wrapText(cell, maxWidth(i, headers))
+			for _, line := range lines {
+				if n := utf8.RuneCountInString(line); n > widths[i] {
+					widths[i] = n
+				}
+			}
+		}
+	}
+
+	// Draw top border.
+	fmt.Fprintln(w, borderLine(widths, "┌", "┬", "┐"))
+
+	// Draw header row (centered).
+	fmt.Fprintln(w, dataLine(widths, headers, true))
+
+	// Draw header separator.
+	fmt.Fprintln(w, borderLine(widths, "├", "┼", "┤"))
+
+	// Draw data rows with word wrapping.
+	for _, cells := range cellRows {
+		wrapped := make([][]string, numCols)
+		maxLines := 1
+		for i, cell := range cells {
+			wrapped[i] = wrapText(cell, widths[i])
+			if len(wrapped[i]) > maxLines {
+				maxLines = len(wrapped[i])
+			}
+		}
+		for line := 0; line < maxLines; line++ {
+			lineCells := make([]string, numCols)
+			for i := range lineCells {
+				if line < len(wrapped[i]) {
+					lineCells[i] = wrapped[i][line]
+				}
+			}
+			fmt.Fprintln(w, dataLine(widths, lineCells, false))
+		}
+	}
+
+	// Draw bottom border.
+	fmt.Fprintln(w, borderLine(widths, "└", "┴", "┘"))
+}
+
+// borderLine builds a horizontal border like ┌────┬────┬────┐.
+func borderLine(widths []int, left, mid, right string) string {
+	var b strings.Builder
+	b.WriteString(left)
+	for i, w := range widths {
+		if i > 0 {
+			b.WriteString(mid)
+		}
+		b.WriteString(strings.Repeat("─", w+2)) // 1 padding each side
+	}
+	b.WriteString(right)
+	return b.String()
+}
+
+// dataLine builds a row like │ val │ val │ val │.
+// If center is true, values are centered; otherwise left-aligned.
+func dataLine(widths []int, cells []string, center bool) string {
+	var b strings.Builder
+	b.WriteString("│")
+	for i, w := range widths {
+		val := ""
+		if i < len(cells) {
+			val = cells[i]
+		}
+		n := utf8.RuneCountInString(val)
+		if center {
+			totalPad := w - n
+			leftPad := totalPad / 2
+			rightPad := totalPad - leftPad
+			b.WriteString(" ")
+			b.WriteString(strings.Repeat(" ", leftPad))
+			b.WriteString(val)
+			b.WriteString(strings.Repeat(" ", rightPad))
+			b.WriteString(" ")
+		} else {
+			b.WriteString(" ")
+			b.WriteString(val)
+			b.WriteString(strings.Repeat(" ", w-n))
+			b.WriteString(" ")
+		}
+		b.WriteString("│")
+	}
+	return b.String()
+}
+
+// wrapText splits text into lines of at most maxWidth runes.
+// Embedded newlines are respected as hard breaks.
+// If maxWidth is 0 or the text fits on one line, returns a single-element slice.
+func wrapText(text string, maxWidth int) []string {
+	// First, split on hard newlines.
+	paragraphs := strings.Split(text, "\n")
+
+	if maxWidth <= 0 {
+		return paragraphs
+	}
+
+	var lines []string
+	for _, para := range paragraphs {
+		lines = append(lines, wrapLine(para, maxWidth)...)
+	}
+	return lines
+}
+
+// wrapLine wraps a single line of text to maxWidth runes with word-boundary breaking.
+func wrapLine(text string, maxWidth int) []string {
+	if utf8.RuneCountInString(text) <= maxWidth {
+		return []string{text}
+	}
+
+	var lines []string
+	runes := []rune(text)
+	for len(runes) > 0 {
+		end := maxWidth
+		if end > len(runes) {
+			end = len(runes)
+		}
+
+		// Try to break at a space for cleaner wrapping.
+		if end < len(runes) {
+			spaceIdx := -1
+			for i := end - 1; i >= end/2; i-- {
+				if runes[i] == ' ' {
+					spaceIdx = i
+					break
+				}
+			}
+			if spaceIdx > 0 {
+				lines = append(lines, string(runes[:spaceIdx]))
+				runes = runes[spaceIdx+1:]
+				continue
+			}
+		}
+
+		lines = append(lines, string(runes[:end]))
+		runes = runes[end:]
+	}
+	return lines
+}
+
+// headerNames returns column header names based on config.
+func headerNames(cfg TableConfig) []string {
+	cols := []string{"Library", "Vulnerability", "Severity", "Status", "Installed Version", "Fixed Version", "Title"}
+	if cfg.ShowRisk {
+		cols = append(cols, "Risk")
+	}
+	if cfg.ShowEPSS {
+		cols = append(cols, "EPSS", "EPSS %ile")
+	}
+	if cfg.ShowKEV {
+		cols = append(cols, "KEV")
+	}
+	return cols
+}
+
+// rowCells returns the cell values for a single vulnerability row.
+func rowCells(v *types.Vulnerability, cfg TableConfig) []string {
+	cols := []string{
+		v.PkgName,
+		v.VulnerabilityID,
+		v.Severity,
+		extraString(v, "Status"),
+		v.InstalledVersion,
+		v.FixedVersion,
+		titleWithURL(v),
+	}
+
+	if cfg.ShowRisk {
+		cols = append(cols, formatRisk(v))
+	}
+	if cfg.ShowEPSS {
+		cols = append(cols, formatEPSSScore(v), formatEPSSPercentile(v))
+	}
+	if cfg.ShowKEV {
+		cols = append(cols, formatKEV(v))
+	}
+
+	return cols
+}
+
+// severitySummary returns a line like:
+// Total: 5 (UNKNOWN: 0, LOW: 2, MEDIUM: 1, HIGH: 1, CRITICAL: 1)
+func severitySummary(vulns []types.Vulnerability) string {
+	counts := map[string]int{
+		"UNKNOWN":  0,
+		"LOW":      0,
+		"MEDIUM":   0,
+		"HIGH":     0,
+		"CRITICAL": 0,
+	}
+	for _, v := range vulns {
+		sev := strings.ToUpper(v.Severity)
+		if _, ok := counts[sev]; ok {
+			counts[sev]++
+		} else {
+			counts["UNKNOWN"]++
+		}
+	}
+	return fmt.Sprintf("Total: %d (UNKNOWN: %d, LOW: %d, MEDIUM: %d, HIGH: %d, CRITICAL: %d)",
+		len(vulns), counts["UNKNOWN"], counts["LOW"], counts["MEDIUM"], counts["HIGH"], counts["CRITICAL"])
 }
 
 // severityRank returns a numeric rank for sorting (higher = more severe).
@@ -73,7 +349,7 @@ func severityRank(severity string) int {
 	case "NEGLIGIBLE":
 		return 1
 	default:
-		return 0 // UNKNOWN or unrecognized
+		return 0
 	}
 }
 
@@ -82,28 +358,22 @@ func sortRows(rows []vulnRow, sortBy string) {
 	switch sortBy {
 	case "risk":
 		sort.SliceStable(rows, func(i, j int) bool {
-			ri := riskValue(rows[i].vuln)
-			rj := riskValue(rows[j].vuln)
-			return ri > rj // descending
+			return riskValue(rows[i].vuln) > riskValue(rows[j].vuln)
 		})
 	case "epss":
 		sort.SliceStable(rows, func(i, j int) bool {
-			ei := epssValue(rows[i].vuln)
-			ej := epssValue(rows[j].vuln)
-			return ei > ej // descending
+			return epssValue(rows[i].vuln) > epssValue(rows[j].vuln)
 		})
 	case "severity":
 		sort.SliceStable(rows, func(i, j int) bool {
-			si := severityRank(rows[i].vuln.Severity)
-			sj := severityRank(rows[j].vuln.Severity)
-			return si > sj // descending
+			return severityRank(rows[i].vuln.Severity) > severityRank(rows[j].vuln.Severity)
 		})
 	case "cve":
 		sort.SliceStable(rows, func(i, j int) bool {
-			return rows[i].vuln.VulnerabilityID < rows[j].vuln.VulnerabilityID // ascending
+			return rows[i].vuln.VulnerabilityID < rows[j].vuln.VulnerabilityID
 		})
 	default:
-		// Empty string or unrecognized: preserve original order.
+		// preserve original order
 	}
 }
 
@@ -123,41 +393,44 @@ func epssValue(v *types.Vulnerability) float64 {
 	return 0
 }
 
-// buildHeader constructs the header row based on enabled columns.
-func buildHeader(cfg TableConfig) string {
-	cols := []string{"CVE", "Severity", "Package", "Installed"}
-	if cfg.ShowRisk {
-		cols = append(cols, "Risk")
+// titleWithURL builds the Title cell content: truncates the title to
+// maxTitleWords words (matching Trivy) and appends PrimaryURL on a new line.
+func titleWithURL(v *types.Vulnerability) string {
+	title := extraString(v, "Title")
+	title = truncateWords(title, maxTitleWords)
+	url := extraString(v, "PrimaryURL")
+	if url != "" {
+		if title != "" {
+			return title + "\n" + url
+		}
+		return url
 	}
-	if cfg.ShowEPSS {
-		cols = append(cols, "EPSS", "EPSS %ile")
-	}
-	if cfg.ShowKEV {
-		cols = append(cols, "KEV")
-	}
-	return strings.Join(cols, "\t")
+	return title
 }
 
-// buildRow constructs a data row for a single vulnerability.
-func buildRow(v *types.Vulnerability, cfg TableConfig) string {
-	cols := []string{
-		v.VulnerabilityID,
-		v.Severity,
-		v.PkgName,
-		v.InstalledVersion,
+// truncateWords limits text to maxWords words, appending "..." if truncated.
+func truncateWords(text string, maxWords int) string {
+	words := strings.Fields(text)
+	if len(words) <= maxWords {
+		return text
 	}
+	return strings.Join(words[:maxWords], " ") + "..."
+}
 
-	if cfg.ShowRisk {
-		cols = append(cols, formatRisk(v))
+// extraString extracts a string value from the Extras passthrough map.
+func extraString(v *types.Vulnerability, key string) string {
+	if v.Extras == nil {
+		return ""
 	}
-	if cfg.ShowEPSS {
-		cols = append(cols, formatEPSSScore(v), formatEPSSPercentile(v))
+	raw, ok := v.Extras[key]
+	if !ok {
+		return ""
 	}
-	if cfg.ShowKEV {
-		cols = append(cols, formatKEV(v))
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return ""
 	}
-
-	return strings.Join(cols, "\t")
+	return s
 }
 
 // formatRisk formats the risk score or returns "-" if nil.
@@ -190,4 +463,65 @@ func formatKEV(v *types.Vulnerability) string {
 		return "YES"
 	}
 	return "NO"
+}
+
+// suppressedHeaderNames returns column header names for the suppressed section.
+func suppressedHeaderNames(cfg TableConfig) []string {
+	cols := []string{"Library", "Vulnerability", "Severity", "Status", "Statement", "Source"}
+	if cfg.ShowRisk {
+		cols = append(cols, "Risk")
+	}
+	if cfg.ShowEPSS {
+		cols = append(cols, "EPSS", "EPSS %ile")
+	}
+	if cfg.ShowKEV {
+		cols = append(cols, "KEV")
+	}
+	return cols
+}
+
+// suppressedRowCells returns the cell values for a single suppressed finding row.
+func suppressedRowCells(mf *types.ModifiedFinding, cfg TableConfig) []string {
+	v := &mf.Finding
+	cols := []string{
+		v.PkgName,
+		v.VulnerabilityID,
+		v.Severity,
+		mf.Status,
+		mf.Statement,
+		mf.Source,
+	}
+	if cfg.ShowRisk {
+		cols = append(cols, formatRisk(v))
+	}
+	if cfg.ShowEPSS {
+		cols = append(cols, formatEPSSScore(v), formatEPSSPercentile(v))
+	}
+	if cfg.ShowKEV {
+		cols = append(cols, formatKEV(v))
+	}
+	return cols
+}
+
+// hasVulnFindings reports whether any modified finding has Type "vulnerability".
+func hasVulnFindings(findings []types.ModifiedFinding) bool {
+	for i := range findings {
+		if findings[i].Type == "vulnerability" {
+			return true
+		}
+	}
+	return false
+}
+
+// writeSuppressedTable renders a box-drawn table for suppressed findings.
+func writeSuppressedTable(w io.Writer, findings []types.ModifiedFinding, cfg TableConfig) {
+	headers := suppressedHeaderNames(cfg)
+	var cellRows [][]string
+	for i := range findings {
+		if findings[i].Type != "vulnerability" {
+			continue
+		}
+		cellRows = append(cellRows, suppressedRowCells(&findings[i], cfg))
+	}
+	renderBoxTable(w, headers, cellRows, suppressedColumnWidth)
 }
