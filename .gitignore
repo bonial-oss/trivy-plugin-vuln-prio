@@ -1,0 +1,18 @@
+# Binaries
+vuln-prio
+dist/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# Build output
+out/
+
+# Worktrees
+.worktrees/
+
+# OS
+.DS_Store
