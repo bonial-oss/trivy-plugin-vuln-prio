@@ -12,5 +12,15 @@ rules:
   scope-enum:
     - 2
     - always
-    - - deps
+    - - cache
+      - cli
+      - deps
+      - enricher
+      - epss
+      - input
+      - kev
+      - output
+      - release
+      - sarif
       - security
+      - types
