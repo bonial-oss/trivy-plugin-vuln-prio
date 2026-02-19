@@ -16,6 +16,10 @@ risk score for vulnerability prioritization.
 
 See the [product requirements document](docs/PRD.md).
 
+## Documentation
+
+The documentation can be found in the [`docs/` subdirectory](docs/index.md).
+
 ## License
 
 The source code of trivy-plugin-vuln-prio is released under the Apache License, Version 2.0.
