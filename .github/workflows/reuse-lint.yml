@@ -1,0 +1,35 @@
+name: REUSE Compliance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  REUSE_VERSION: 6.2.0
+
+jobs:
+  reuse-lint:
+    name: REUSE Specification Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install REUSE tool
+        run: pip install reuse=="$REUSE_VERSION"
+
+      - name: Run REUSE lint
+        run: reuse lint
