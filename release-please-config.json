@@ -1,0 +1,16 @@
+{
+  "bump-minor-pre-major": true,
+  "packages": {
+    ".": {
+      "exclude-paths": [
+        "README.md",
+        "catalog-info.yaml",
+        "docs/",
+        "mkdocs.yml"
+      ],
+      "include-component-in-tag": false,
+      "package-name": "trivy-plugin-vuln-prio"
+    }
+  },
+  "release-type": "go"
+}
