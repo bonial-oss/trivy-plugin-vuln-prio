@@ -1,4 +1,5 @@
 # Binaries
+trivy-plugin-vuln-prio
 vuln-prio
 dist/
 
