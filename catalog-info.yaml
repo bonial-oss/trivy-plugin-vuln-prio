@@ -4,6 +4,8 @@
 apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
+  annotations:
+    backstage.io/techdocs-ref: dir:.
   description: |
     Trivy output plugin that enriches vulnerability scan results with
     EPSS exploit prediction scores, CISA KEV catalog data, and a composite
