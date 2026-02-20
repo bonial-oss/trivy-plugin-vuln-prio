@@ -13,6 +13,7 @@ permissions:
   contents: read
 
 env:
+  # renovate: datasource=github-releases depName=fsfe/reuse-tool
   REUSE_VERSION: 6.2.0
 
 jobs:
