@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 Bonial International GmbH
+# SPDX-License-Identifier: Apache-2.0
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  description: |
+    Trivy output plugin that enriches vulnerability scan results with
+    EPSS exploit prediction scores, CISA KEV catalog data, and a composite
+    risk score for vulnerability prioritization.
+  links:
+    - title: GitHub project
+      url: https://github.com/bonial-oss/trivy-plugin-vuln-prio
+  name: trivy-plugin-vuln-prio
+  tags:
+    - go
+    - open-source
+    - security
+spec:
+  lifecycle: experimental
+  owner: platform-engineering
+  type: tool
