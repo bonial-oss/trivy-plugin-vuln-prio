@@ -19,6 +19,7 @@ rules:
       - epss
       - input
       - kev
+      - main
       - output
       - release
       - sarif
