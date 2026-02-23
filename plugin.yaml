@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: 2026 Bonial International GmbH
+# SPDX-License-Identifier: Apache-2.0
+
+name: vuln-prio
+version: "0.0.1" # x-release-please-version
+repository: github.com/bonial-oss/trivy-plugin-vuln-prio
+maintainer: Bonial International GmbH
+output: true
+summary: Enrich Trivy vulnerability scan results with EPSS scores and CISA KEV data
+description: |
+  A Trivy output plugin that reads JSON scan results from stdin, enriches each
+  vulnerability with EPSS probability/percentile scores and CISA Known Exploited
+  Vulnerabilities (KEV) catalog data, then renders a prioritised table view to
+  help teams focus on the most exploitable findings first.
+platforms:
+  - selector:
+      os: darwin
+      arch: amd64
+    # x-release-please-start-version
+    uri: https://github.com/bonial-oss/trivy-plugin-vuln-prio/releases/download/v0.0.1/vuln-prio_0.0.1_darwin-amd64.tar.gz
+    # x-release-please-end
+    bin: vuln-prio
+  - selector:
+      os: darwin
+      arch: arm64
+    # x-release-please-start-version
+    uri: https://github.com/bonial-oss/trivy-plugin-vuln-prio/releases/download/v0.0.1/vuln-prio_0.0.1_darwin-arm64.tar.gz
+    # x-release-please-end
+    bin: vuln-prio
+  - selector:
+      os: linux
+      arch: amd64
+    # x-release-please-start-version
+    uri: https://github.com/bonial-oss/trivy-plugin-vuln-prio/releases/download/v0.0.1/vuln-prio_0.0.1_linux-amd64.tar.gz
+    # x-release-please-end
+    bin: vuln-prio
+  - selector:
+      os: linux
+      arch: arm64
+    # x-release-please-start-version
+    uri: https://github.com/bonial-oss/trivy-plugin-vuln-prio/releases/download/v0.0.1/vuln-prio_0.0.1_linux-arm64.tar.gz
+    # x-release-please-end
+    bin: vuln-prio
