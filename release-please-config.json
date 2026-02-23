@@ -15,7 +15,10 @@
     {"type": "test", "section": "Tests", "hidden": true}
   ],
   "extra-files": [
-    "plugin.yaml"
+    {
+      "type": "generic",
+      "path": "plugin.yaml"
+    }
   ],
   "packages": {
     ".": {
