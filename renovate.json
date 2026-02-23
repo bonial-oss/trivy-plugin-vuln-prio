@@ -1,0 +1,13 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices",
+    "mergeConfidence:all-badges",
+    "customManagers:githubActionsVersions",
+    "customManagers:makefileVersions",
+    ":automergeDigest",
+    ":automergePatch",
+    ":automergeStableNonMajor"
+  ],
+  "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"]
+}

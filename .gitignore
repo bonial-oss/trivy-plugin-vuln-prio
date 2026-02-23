@@ -1,4 +1,5 @@
 # Binaries
+trivy-plugin-vuln-prio
 vuln-prio
 dist/
 
@@ -13,6 +14,11 @@ out/
 
 # Worktrees
 .worktrees/
+
+# Test / lint output
+coverage.txt
+mega-linter.log
+megalinter-reports/
 
 # OS
 .DS_Store
