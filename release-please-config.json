@@ -1,5 +1,7 @@
 {
+  "changelog-path": "docs/CHANGELOG.md",
   "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": true,
   "packages": {
     ".": {
       "exclude-paths": [
@@ -12,5 +14,6 @@
       "package-name": "trivy-plugin-vuln-prio"
     }
   },
+  "release-as": "0.0.1",
   "release-type": "go"
 }

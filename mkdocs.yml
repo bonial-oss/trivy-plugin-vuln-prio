@@ -5,6 +5,7 @@ nav:
   - Home: index.md
   - CLI Usage: cli.md
   - PRD: PRD.md
+  - Changelog: CHANGELOG.md
 
 site_description: >
   Trivy output plugin that enriches vulnerability scan results with EPSS
