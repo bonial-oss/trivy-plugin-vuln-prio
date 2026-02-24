@@ -18,7 +18,7 @@ builds:
 
 archives:
   - format: tar.gz
-    name_template: "vuln-prio_{{ .Version }}_{{ .Os }}-{{ .Arch }}"
+    name_template: "vuln-prio_{{ .Os }}-{{ .Arch }}"
 
 release:
   mode: keep-existing
