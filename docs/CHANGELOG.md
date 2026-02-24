@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.2](https://github.com/bonial-oss/trivy-plugin-vuln-prio/compare/v0.0.1...v0.0.2) (2026-02-24)
+
+
+### Features
+
+* **main:** add plugin.yaml for installation as Trivy plugin ([547c55a](https://github.com/bonial-oss/trivy-plugin-vuln-prio/commit/547c55a7e0a76e737b2a625440668b6d7f3e1c24))
+* **main:** add plugin.yaml for installation as Trivy plugin ([1ed117a](https://github.com/bonial-oss/trivy-plugin-vuln-prio/commit/1ed117a381616cd8f19204bb9321ab28813c74cf))
+
+
+### Bug Fixes
+
+* **main:** use generic type for release-please extra-files ([24a3422](https://github.com/bonial-oss/trivy-plugin-vuln-prio/commit/24a3422fc55ea5f72037077596bb7f46b0905c94))
+* **main:** use generic type for release-please extra-files ([2068bbe](https://github.com/bonial-oss/trivy-plugin-vuln-prio/commit/2068bbe01fe1c4ef385d75c8a8f42bb1a75fb32f))
+
 ## 0.0.1 (2026-02-23)
 
 
