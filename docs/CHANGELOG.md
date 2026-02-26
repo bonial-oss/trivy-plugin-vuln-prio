@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.0](https://github.com/bonial-oss/trivy-plugin-vuln-prio/compare/v0.0.2...v0.1.0) (2026-02-26)
+## 0.1.0 (2026-02-26)
 
 
 ### Miscellaneous Chores
