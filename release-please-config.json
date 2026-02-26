@@ -33,5 +33,6 @@
       "package-name": "trivy-plugin-vuln-prio"
     }
   },
+  "release-as": "0.1.0",
   "release-type": "go"
 }
