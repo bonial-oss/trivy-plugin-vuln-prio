@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 name: vuln-prio
-version: "0.0.2" # x-release-please-version
+version: "0.1.0" # x-release-please-version
 repository: github.com/bonial-oss/trivy-plugin-vuln-prio
 maintainer: Bonial International GmbH
 output: true
@@ -17,27 +17,27 @@ platforms:
       os: darwin
       arch: amd64
     # x-release-please-start-version
-    uri: https://github.com/bonial-oss/trivy-plugin-vuln-prio/releases/download/v0.0.2/vuln-prio_darwin-amd64.tar.gz
+    uri: https://github.com/bonial-oss/trivy-plugin-vuln-prio/releases/download/v0.1.0/vuln-prio_darwin-amd64.tar.gz
     # x-release-please-end
     bin: vuln-prio
   - selector:
       os: darwin
       arch: arm64
     # x-release-please-start-version
-    uri: https://github.com/bonial-oss/trivy-plugin-vuln-prio/releases/download/v0.0.2/vuln-prio_darwin-arm64.tar.gz
+    uri: https://github.com/bonial-oss/trivy-plugin-vuln-prio/releases/download/v0.1.0/vuln-prio_darwin-arm64.tar.gz
     # x-release-please-end
     bin: vuln-prio
   - selector:
       os: linux
       arch: amd64
     # x-release-please-start-version
-    uri: https://github.com/bonial-oss/trivy-plugin-vuln-prio/releases/download/v0.0.2/vuln-prio_linux-amd64.tar.gz
+    uri: https://github.com/bonial-oss/trivy-plugin-vuln-prio/releases/download/v0.1.0/vuln-prio_linux-amd64.tar.gz
     # x-release-please-end
     bin: vuln-prio
   - selector:
       os: linux
       arch: arm64
     # x-release-please-start-version
-    uri: https://github.com/bonial-oss/trivy-plugin-vuln-prio/releases/download/v0.0.2/vuln-prio_linux-arm64.tar.gz
+    uri: https://github.com/bonial-oss/trivy-plugin-vuln-prio/releases/download/v0.1.0/vuln-prio_linux-arm64.tar.gz
     # x-release-please-end
     bin: vuln-prio
